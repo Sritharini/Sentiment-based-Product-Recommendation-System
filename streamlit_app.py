@@ -113,7 +113,9 @@ if st.button("🚀 Get Recommendations"):
             st.markdown("</div>", unsafe_allow_html=True)
 
     except Exception as e:
+        st.write("TF-IDF vectorizer dimensions:", tf_idf_vectorizer.get_feature_names_out().shape)
         st.error(f"❌ Error occurred: {e}")
+        
 
 # ---------------------------
 # FOOTER
