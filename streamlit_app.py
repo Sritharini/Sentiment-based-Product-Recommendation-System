@@ -38,7 +38,7 @@ def get_final_recommendations(user_id, top_n=20, final_n=5):
 
     filtered_reviews = review_df[review_df['name'].isin(top_20_df['product'])].copy()
     filtered_reviews['cleaned_text'] = filtered_reviews['reviews_text'].apply(clean_text)
-    X_reviews = tfidf_vectorizer.transform(filtered_reviews['cleaned_text'])
+    X_reviews = tf_idf_vectorizer.transform(filtered_reviews['cleaned_text'])
     filtered_reviews['positive_score'] = sentiment_model.predict_proba(X_reviews)[:, 1]
 
     avg_sentiment = filtered_reviews.groupby('name')['positive_score'].mean().reset_index()
