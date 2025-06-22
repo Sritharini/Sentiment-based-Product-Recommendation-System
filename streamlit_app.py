@@ -1,26 +1,28 @@
 import streamlit as st
 import pandas as pd
 import pickle
+import numpy as np
 
 # ---------------------------
 # SETUP: Load Models and Data
 # ---------------------------
 tf_idf_vectorizer = pickle.load(open("models/tf_idf_vectorizer.pkl", "rb"))
 sentiment_model = pickle.load(open("models/sentiment_model.pkl", "rb"))
-item_similarity_df = pickle.load(open("models/similarity_matrix.pkl", "rb"))
+similarity_matrix = pickle.load(open("models/similarity_matrix.pkl", "rb"))
 review_df = pd.read_csv("data/review_df.csv")
 
 # ---------------------------
-# HELPER FUNCTION: Text Cleaner
+# HELPER FUNCTION: Clean Text
 # ---------------------------
 def clean_text(text):
     return text.lower()
 
 # ---------------------------
-# CORE FUNCTION: Generate Recommendations
+# CORE FUNCTION: Hybrid Recommendation
 # ---------------------------
-def get_final_recommendations(user_id, top_n=20, final_n=5):
+def recommend_products(user_id, top_n=20, final_n=5):
     user_item_matrix = pd.pivot_table(review_df, index='user_id', columns='name', values='reviews_rating')
+
     if user_id not in user_item_matrix.index:
         return pd.DataFrame()
 
@@ -28,79 +30,87 @@ def get_final_recommendations(user_id, top_n=20, final_n=5):
     scores = pd.Series(dtype=float)
 
     for item, rating in user_ratings.items():
-        if item in item_similarity_df:
-            similar_items = item_similarity_df[item]
+        if item in similarity_matrix:
+            similar_items = similarity_matrix[item]
             scores = scores.add(similar_items * rating, fill_value=0)
 
     scores = scores.drop(user_ratings.index, errors='ignore')
-    top_20_df = scores.sort_values(ascending=False).head(top_n).reset_index()
-    top_20_df.columns = ['product', 'score']
+    top_20 = scores.sort_values(ascending=False).head(top_n).reset_index()
+    top_20.columns = ['product', 'score']
 
-    filtered_reviews = review_df[review_df['name'].isin(top_20_df['product'])].copy()
+    filtered_reviews = review_df[review_df['name'].isin(top_20['product'])].copy()
     filtered_reviews['cleaned_text'] = filtered_reviews['reviews_text'].apply(clean_text)
-    X_reviews = tf_idf_vectorizer.transform(filtered_reviews['cleaned_text'])
-    filtered_reviews['positive_score'] = sentiment_model.predict_proba(X_reviews)[:, 1]
+    
+    try:
+        X = tf_idf_vectorizer.transform(filtered_reviews['cleaned_text'])
+    except ValueError:
+        raise ValueError("Vectorizer and model dimension mismatch. Ensure the vectorizer used during training is used here.")
 
-    avg_sentiment = filtered_reviews.groupby('name')['positive_score'].mean().reset_index()
-    final_recs = pd.merge(top_20_df, avg_sentiment, left_on='product', right_on='name')
-    final_recs = final_recs.drop(columns=['name'])
-    final_recs['hybrid_score'] = 0.6 * final_recs['score'] + 0.4 * final_recs['positive_score']
+    filtered_reviews['positive_score'] = sentiment_model.predict_proba(X)[:, 1]
+    sentiment_scores = filtered_reviews.groupby('name')['positive_score'].mean().reset_index()
 
-    return final_recs.sort_values(by='hybrid_score', ascending=False).head(final_n)
+    final = pd.merge(top_20, sentiment_scores, left_on='product', right_on='name').drop(columns=['name'])
+    final['hybrid_score'] = 0.6 * final['score'] + 0.4 * final['positive_score']
+
+    return final.sort_values(by='hybrid_score', ascending=False).head(final_n)
 
 # ---------------------------
 # STREAMLIT UI CONFIGURATION
 # ---------------------------
-st.set_page_config(
-    page_title="Smart Product Recommender",
-    page_icon="🛍️",
-    layout="centered",
-    initial_sidebar_state="collapsed"
-)
+st.set_page_config(page_title="🛍️ Smart Product Recommender", layout="centered")
 
 st.markdown("""
     <style>
-    .main-title {
-        font-size:40px !important;
-        font-weight:bold;
-        color:#2c3e50;
-        text-align:center;
-        padding: 10px 0 0 0;
-    }
-    .sub-title {
-        font-size:20px !important;
-        color:#7f8c8d;
-        text-align:center;
-    }
-    .recommend-box {
-        background-color: #e8f6f3;
-        padding: 20px;
-        border-radius: 10px;
-        margin-top: 20px;
-        border: 1px solid #d1e7dd;
-    }
+        .main-title {
+            font-size: 40px;
+            font-weight: bold;
+            color: #2c3e50;
+            text-align: center;
+            margin-top: 10px;
+        }
+        .sub-title {
+            font-size: 20px;
+            color: #7f8c8d;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .recommend-box {
+            background-color: #f0f8ff;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #d1e7dd;
+            margin-top: 20px;
+        }
+        .footer {
+            text-align: center;
+            color: gray;
+            font-size: 14px;
+        }
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-title">🌟 Smart Product Recommender</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Get AI-powered suggestions based on collaborative filtering + sentiment</div>', unsafe_allow_html=True)
+st.markdown("<div class='main-title'>🌟 Smart Product Recommender</div>", unsafe_allow_html=True)
+st.markdown("<div class='sub-title'>Get AI-powered suggestions using Collaborative Filtering + Sentiment Analysis</div>", unsafe_allow_html=True)
 
 # ---------------------------
-# INPUT FORM
+# INPUT SECTION
 # ---------------------------
-user_id = st.text_input("🔑 Enter User ID", placeholder="Try 2784, 1499, 3134...")
+st.markdown("### 🔑 Enter User ID Below")
+user_input = st.text_input("Example: 2784, 1499, 3134...", placeholder="Enter a valid User ID")
+
 if st.button("🚀 Get Recommendations"):
     try:
-        user_id = int(user_id)
-        with st.spinner("Analyzing preferences..."):
-            recs = get_final_recommendations(user_id)
+        user_id = int(user_input)
+        with st.spinner("🔍 Analyzing your preferences..."):
+            results = recommend_products(user_id)
 
-        if recs.empty:
-            st.warning("No recommendations found for this User ID.")
+        if results.empty:
+            st.warning("⚠️ No recommendations found for this User ID.")
         else:
-            st.markdown('<div class="recommend-box"><h4>✅ Top 5 Product Recommendations</h4>', unsafe_allow_html=True)
-            st.dataframe(recs.reset_index(drop=True), use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.success("✅ Top 5 Product Recommendations just for you!")
+            st.markdown("<div class='recommend-box'>", unsafe_allow_html=True)
+            st.dataframe(results.reset_index(drop=True), use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
     except Exception as e:
         st.error(f"❌ Error occurred: {e}")
@@ -108,8 +118,5 @@ if st.button("🚀 Get Recommendations"):
 # ---------------------------
 # FOOTER
 # ---------------------------
-st.markdown("""---""")
-st.markdown(
-    "<p style='text-align: center; color: gray;'>Capstone Project | Deployed via Streamlit</p>",
-    unsafe_allow_html=True
-)
+st.markdown("---")
+st.markdown("<div class='footer'>Capstone Project | Streamlit Deployment | 2025</div>", unsafe_allow_html=True)
