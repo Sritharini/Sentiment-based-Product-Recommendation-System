@@ -5,7 +5,7 @@ import pickle
 # ---------------------------
 # SETUP: Load Models and Data
 # ---------------------------
-tfidf_vectorizer = pickle.load(open("models/tf_idf_vectorizer.pkl", "rb"))
+tf_idf_vectorizer = pickle.load(open("models/tf_idf_vectorizer.pkl", "rb"))
 sentiment_model = pickle.load(open("models/sentiment_model.pkl", "rb"))
 item_similarity_df = pickle.load(open("models/similarity_matrix.pkl", "rb"))
 review_df = pd.read_csv("data/review_df.csv")
